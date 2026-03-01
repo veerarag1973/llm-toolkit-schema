@@ -102,6 +102,11 @@ The following names are the stable, supported public interface.
 * :class:`~llm_schema.stream.EventStream`
 * :class:`~llm_schema.stream.Exporter`
 * :class:`~llm_schema.exceptions.ExportError`
+* :func:`~llm_schema.validate.validate_event`
+* Namespace payloads (v0.5): :mod:`llm_schema.namespaces` — see sub-module
+  docs for :class:`~llm_schema.namespaces.trace.SpanCompletedPayload`
+  (**FROZEN v1**), :class:`~llm_schema.namespaces.cost.CostRecordedPayload`,
+  :class:`~llm_schema.namespaces.eval_.EvalScenarioPayload`, and all others.
 
 Version history
 ---------------
@@ -114,6 +119,10 @@ v0.3 — HMAC-SHA256 signing (``sign``, ``verify``), tamper-evident audit chain
 v0.4 — OTLP/JSON export (``OTLPExporter``), HTTP webhook export
         (``WebhookExporter``), JSONL file export (``JSONLExporter``),
         ``EventStream`` with filtering and routing.
+v0.5 — Namespace payload dataclasses for all 10 reserved namespaces
+        (``llm_schema.namespaces``).  Published JSON Schema
+        (``schemas/v1.0/schema.json``).  ``validate_event()`` for schema
+        validation with optional ``jsonschema`` backend.
 """
 
 from llm_schema.event import SCHEMA_VERSION, Event, Tags
@@ -159,8 +168,49 @@ from llm_schema.ulid import validate as validate_ulid
 
 from llm_schema.export import JSONLExporter, OTLPExporter, ResourceAttributes, WebhookExporter
 from llm_schema.stream import EventStream, Exporter
+from llm_schema.validate import validate_event
+from llm_schema.namespaces import (
+    # cache
+    CacheEvictedPayload,
+    CacheHitPayload,
+    CacheMissPayload,
+    # cost
+    BudgetThresholdPayload,
+    CostRecordedPayload,
+    # diff
+    DiffComparisonPayload,
+    DiffReportPayload,
+    # eval
+    EvalRegressionPayload,
+    EvalScenarioPayload,
+    # fence
+    FenceValidationFailedPayload,
+    RetryTriggeredPayload,
+    ValidationPassedPayload,
+    # guard
+    GuardBlockedPayload,
+    GuardFlaggedPayload,
+    # prompt
+    PromptApprovedPayload,
+    PromptPromotedPayload,
+    PromptRolledBackPayload,
+    PromptSavedPayload,
+    # redact (namespace)
+    PIIDetectedPayload,
+    PIIRedactedPayload,
+    ScanCompletedPayload,
+    # template
+    TemplateRenderedPayload,
+    TemplateValidationFailedPayload,
+    VariableMissingPayload,
+    # trace (FROZEN v1)
+    ModelInfo,
+    SpanCompletedPayload,
+    TokenUsage,
+    ToolCall,
+)
 
-__version__: str = "0.4.0"
+__version__: str = "0.5.0"
 __all__: list[str] = [
     # Core
     "Event",
@@ -210,6 +260,46 @@ __all__: list[str] = [
     "SigningError",
     "VerificationError",
     "ExportError",
+    # Validation (v0.5)
+    "validate_event",
+    # Namespace payloads (v0.5) — cache
+    "CacheHitPayload",
+    "CacheMissPayload",
+    "CacheEvictedPayload",
+    # Namespace payloads (v0.5) — cost
+    "CostRecordedPayload",
+    "BudgetThresholdPayload",
+    # Namespace payloads (v0.5) — diff
+    "DiffComparisonPayload",
+    "DiffReportPayload",
+    # Namespace payloads (v0.5) — eval
+    "EvalScenarioPayload",
+    "EvalRegressionPayload",
+    # Namespace payloads (v0.5) — fence
+    "ValidationPassedPayload",
+    "FenceValidationFailedPayload",
+    "RetryTriggeredPayload",
+    # Namespace payloads (v0.5) — guard
+    "GuardBlockedPayload",
+    "GuardFlaggedPayload",
+    # Namespace payloads (v0.5) — prompt
+    "PromptSavedPayload",
+    "PromptPromotedPayload",
+    "PromptApprovedPayload",
+    "PromptRolledBackPayload",
+    # Namespace payloads (v0.5) — redact namespace
+    "PIIDetectedPayload",
+    "PIIRedactedPayload",
+    "ScanCompletedPayload",
+    # Namespace payloads (v0.5) — template
+    "TemplateRenderedPayload",
+    "VariableMissingPayload",
+    "TemplateValidationFailedPayload",
+    # Namespace payloads (v0.5) — trace (FROZEN v1)
+    "TokenUsage",
+    "ModelInfo",
+    "ToolCall",
+    "SpanCompletedPayload",
     # Metadata
     "__version__",
 ]
