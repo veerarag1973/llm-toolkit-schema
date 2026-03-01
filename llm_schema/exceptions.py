@@ -23,6 +23,7 @@ __all__ = [
     "EventTypeError",
     "SigningError",
     "VerificationError",
+    "ExportError",
 ]
 
 
@@ -152,3 +153,34 @@ class VerificationError(LLMSchemaError):
             f"Event '{event_id}' failed cryptographic verification. "
             "The event may have been tampered with or the wrong key was used."
         )
+
+
+class ExportError(LLMSchemaError):
+    """Raised when exporting events to an external backend fails.
+
+    Attributes:
+        backend:  Short identifier for the backend (e.g. ``"otlp"``,
+                  ``"webhook"``, ``"jsonl"``).
+        reason:   Human-readable description of the failure.
+        event_id: The ULID of the event that failed, or ``""`` for batch
+                  failures where no single event is responsible.
+
+    Security: HMAC secrets and PII-tagged payloads are **never** embedded in
+    the message or ``__cause__``.
+
+    Example::
+
+        try:
+            await exporter.export(event)
+        except ExportError as exc:
+            logger.error("backend=%s reason=%s", exc.backend, exc.reason)
+    """
+
+    def __init__(self, backend: str, reason: str, event_id: str = "") -> None:
+        self.backend = backend
+        self.reason = reason
+        self.event_id = event_id
+        msg = f"Export to '{backend}' failed: {reason}"
+        if event_id:
+            msg += f" (event_id={event_id!r})"
+        super().__init__(msg)

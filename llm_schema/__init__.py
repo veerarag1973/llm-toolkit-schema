@@ -95,6 +95,13 @@ The following names are the stable, supported public interface.
 * :func:`~llm_schema.signing.assert_verified`
 * :class:`~llm_schema.signing.ChainVerificationResult`
 * :class:`~llm_schema.signing.AuditStream`
+* :class:`~llm_schema.export.otlp.OTLPExporter`
+* :class:`~llm_schema.export.otlp.ResourceAttributes`
+* :class:`~llm_schema.export.webhook.WebhookExporter`
+* :class:`~llm_schema.export.jsonl.JSONLExporter`
+* :class:`~llm_schema.stream.EventStream`
+* :class:`~llm_schema.stream.Exporter`
+* :class:`~llm_schema.exceptions.ExportError`
 
 Version history
 ---------------
@@ -104,12 +111,16 @@ v0.2 — PII redaction framework (``Redactable``, ``RedactionPolicy``,
         ``Sensitivity``).  Pydantic v2 model layer (``llm_schema.models``).
 v0.3 — HMAC-SHA256 signing (``sign``, ``verify``), tamper-evident audit chain
         (``verify_chain``, ``AuditStream``), key rotation, gap detection.
+v0.4 — OTLP/JSON export (``OTLPExporter``), HTTP webhook export
+        (``WebhookExporter``), JSONL file export (``JSONLExporter``),
+        ``EventStream`` with filtering and routing.
 """
 
 from llm_schema.event import SCHEMA_VERSION, Event, Tags
 from llm_schema.exceptions import (
     DeserializationError,
     EventTypeError,
+    ExportError,
     LLMSchemaError,
     SchemaValidationError,
     SerializationError,
@@ -146,7 +157,10 @@ from llm_schema.ulid import extract_timestamp_ms
 from llm_schema.ulid import generate as generate_ulid
 from llm_schema.ulid import validate as validate_ulid
 
-__version__: str = "0.3.0"
+from llm_schema.export import JSONLExporter, OTLPExporter, ResourceAttributes, WebhookExporter
+from llm_schema.stream import EventStream, Exporter
+
+__version__: str = "0.4.0"
 __all__: list[str] = [
     # Core
     "Event",
@@ -178,6 +192,14 @@ __all__: list[str] = [
     "assert_verified",
     "ChainVerificationResult",
     "AuditStream",
+    # Export backends (v0.4)
+    "OTLPExporter",
+    "ResourceAttributes",
+    "WebhookExporter",
+    "JSONLExporter",
+    # Event routing (v0.4)
+    "EventStream",
+    "Exporter",
     # Exceptions
     "LLMSchemaError",
     "SchemaValidationError",
@@ -187,6 +209,7 @@ __all__: list[str] = [
     "EventTypeError",
     "SigningError",
     "VerificationError",
+    "ExportError",
     # Metadata
     "__version__",
 ]
