@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 # ---------------------------------------------------------------------------
 [project]
 name = "llm-schema"
-version = "0.2.0"
+version = "0.3.0"
 description = "The foundational shared event schema for the LLM Developer Toolkit"
 readme = "README.md"
 license = { text = "MIT" }

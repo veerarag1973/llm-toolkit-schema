@@ -42,6 +42,23 @@ Pydantic models (optional, requires pydantic>=2.7)
     model = EventModel.from_event(event)
     print(model.model_json_schema())
 
+HMAC signing & audit chain (v0.3+)
+-----------------------------------
+::
+
+    from llm_schema.signing import sign, verify, verify_chain, AuditStream
+
+    # Sign individual events
+    signed = sign(event, org_secret="my-secret")
+    assert verify(signed, org_secret="my-secret")
+
+    # Build a tamper-evident chain
+    stream = AuditStream(org_secret="my-secret", source="signing-daemon@1.0.0")
+    for evt in events:
+        stream.append(evt)
+    result = stream.verify()
+    assert result.valid
+
 Public API
 ----------
 The following names are the stable, supported public interface.
@@ -63,6 +80,8 @@ The following names are the stable, supported public interface.
 * :class:`~llm_schema.exceptions.SerializationError`
 * :class:`~llm_schema.exceptions.DeserializationError`
 * :class:`~llm_schema.exceptions.EventTypeError`
+* :class:`~llm_schema.exceptions.SigningError`
+* :class:`~llm_schema.exceptions.VerificationError`
 * :class:`~llm_schema.redact.Sensitivity`
 * :class:`~llm_schema.redact.Redactable`
 * :class:`~llm_schema.redact.RedactionPolicy`
@@ -70,6 +89,12 @@ The following names are the stable, supported public interface.
 * :class:`~llm_schema.redact.PIINotRedactedError`
 * :func:`~llm_schema.redact.contains_pii`
 * :func:`~llm_schema.redact.assert_redacted`
+* :func:`~llm_schema.signing.sign`
+* :func:`~llm_schema.signing.verify`
+* :func:`~llm_schema.signing.verify_chain`
+* :func:`~llm_schema.signing.assert_verified`
+* :class:`~llm_schema.signing.ChainVerificationResult`
+* :class:`~llm_schema.signing.AuditStream`
 
 Version history
 ---------------
@@ -77,6 +102,8 @@ v0.1 — Core ``Event``, ``EventType``, ULID, JSON serialisation, validation.
         Zero external dependencies.
 v0.2 — PII redaction framework (``Redactable``, ``RedactionPolicy``,
         ``Sensitivity``).  Pydantic v2 model layer (``llm_schema.models``).
+v0.3 — HMAC-SHA256 signing (``sign``, ``verify``), tamper-evident audit chain
+        (``verify_chain``, ``AuditStream``), key rotation, gap detection.
 """
 
 from llm_schema.event import SCHEMA_VERSION, Event, Tags
@@ -86,7 +113,9 @@ from llm_schema.exceptions import (
     LLMSchemaError,
     SchemaValidationError,
     SerializationError,
+    SigningError,
     ULIDError,
+    VerificationError,
 )
 from llm_schema.redact import (
     PIINotRedactedError,
@@ -97,6 +126,14 @@ from llm_schema.redact import (
     Sensitivity,
     assert_redacted,
     contains_pii,
+)
+from llm_schema.signing import (
+    AuditStream,
+    ChainVerificationResult,
+    assert_verified,
+    sign,
+    verify,
+    verify_chain,
 )
 from llm_schema.types import (
     EventType,
@@ -109,7 +146,7 @@ from llm_schema.ulid import extract_timestamp_ms
 from llm_schema.ulid import generate as generate_ulid
 from llm_schema.ulid import validate as validate_ulid
 
-__version__: str = "0.2.0"
+__version__: str = "0.3.0"
 __all__: list[str] = [
     # Core
     "Event",
@@ -134,6 +171,13 @@ __all__: list[str] = [
     "contains_pii",
     "assert_redacted",
     "PII_TYPES",
+    # HMAC Signing & Audit Chain (v0.3)
+    "sign",
+    "verify",
+    "verify_chain",
+    "assert_verified",
+    "ChainVerificationResult",
+    "AuditStream",
     # Exceptions
     "LLMSchemaError",
     "SchemaValidationError",
@@ -141,6 +185,8 @@ __all__: list[str] = [
     "SerializationError",
     "DeserializationError",
     "EventTypeError",
+    "SigningError",
+    "VerificationError",
     # Metadata
     "__version__",
 ]

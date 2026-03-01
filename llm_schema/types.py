@@ -66,16 +66,17 @@ _EVENT_TYPE_RE: Final[re.Pattern[str]] = re.compile(EVENT_TYPE_PATTERN)
 # Namespaces reserved by the llm-toolkit registry.
 _RESERVED_NAMESPACES: Final[frozenset[str]] = frozenset(
     [
+        "llm.audit",
+        "llm.cache",
+        "llm.cost",
         "llm.diff",
+        "llm.eval",
+        "llm.fence",
+        "llm.guard",
         "llm.prompt",
+        "llm.redact",
         "llm.template",
         "llm.trace",
-        "llm.cost",
-        "llm.eval",
-        "llm.guard",
-        "llm.redact",
-        "llm.fence",
-        "llm.cache",
     ]
 )
 
@@ -308,6 +309,20 @@ class EventType(str, Enum):
         "llm.fence.retry.triggered",
         "llm-fence",
         "A retry was triggered following a fence validation failure.",
+    )
+
+    # ------------------------------------------------------------------
+    # llm.audit.*  — llm-schema (audit chain / signing infrastructure)
+    # ------------------------------------------------------------------
+    AUDIT_CHAIN_STARTED = (
+        "llm.audit.chain.started",
+        "llm-schema",
+        "A new tamper-evident audit chain was initialised.",
+    )
+    AUDIT_KEY_ROTATED = (
+        "llm.audit.key.rotated",
+        "llm-schema",
+        "The HMAC signing key was rotated; subsequent events use the new key.",
     )
 
     # ------------------------------------------------------------------

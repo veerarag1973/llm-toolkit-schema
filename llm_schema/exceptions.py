@@ -21,6 +21,8 @@ __all__ = [
     "SerializationError",
     "DeserializationError",
     "EventTypeError",
+    "SigningError",
+    "VerificationError",
 ]
 
 
@@ -119,4 +121,34 @@ class EventTypeError(LLMSchemaError):
         self.reason = reason
         super().__init__(
             f"Invalid event type '{event_type}': {reason}"
+        )
+
+
+class SigningError(LLMSchemaError):
+    """Raised when HMAC event signing fails.
+
+    Security: the ``org_secret`` value is **never** included in the message.
+
+    Attributes:
+        reason: Human-readable description of why signing failed.
+    """
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(f"Signing failed: {reason}")
+
+
+class VerificationError(LLMSchemaError):
+    """Raised by :func:`~llm_schema.signing.assert_verified` if an event fails
+    cryptographic verification.
+
+    Attributes:
+        event_id: The ULID of the event that failed (safe to log).
+    """
+
+    def __init__(self, event_id: str) -> None:
+        self.event_id = event_id
+        super().__init__(
+            f"Event '{event_id}' failed cryptographic verification. "
+            "The event may have been tampered with or the wrong key was used."
         )
