@@ -8,6 +8,7 @@ routing layer that ties them together.
 | Class | Protocol | Typical use |
 |-------|----------|-------------|
 | `OTLPExporter` | OTLP / HTTP JSON | OpenTelemetry collector, Grafana Tempo |
+| `OTelBridgeExporter` | OTel SDK `TracerProvider` | Auto-instrumentation pipelines (requires `[otel]`) |
 | `WebhookExporter` | HTTPS POST | Slack, PagerDuty, or any custom HTTP endpoint |
 | `JSONLExporter` | Local file | Data-lake ingestion, offline analysis, tests |
 | `DatadogExporter` | Datadog Agent + API | Datadog APM traces and metrics |
@@ -63,15 +64,22 @@ from llm_toolkit_schema.export.otlp import OTLPExporter
 exporter = OTLPExporter(
     endpoint="http://otel-collector:4317",
     service_name="my-llm-service",
-    resource_attrs={"deployment.environment": "production"},
+    resource_attrs={"deployment.environment.name": "production"},
     insecure=True,
     compression="gzip",
 )
 exporter.export(event)
 ```
 
-Each `LLMEvent` becomes an OTLP `LogRecord`. The `event_type` field is mapped
-to `log.record.type` and all payload keys appear as OTLP attributes.
+Events **with** a `trace_id` become OTLP trace spans (`resourceSpans`). The
+emitter sets `spanKind: CLIENT`, `traceFlags: 1` (sampled), and
+`endTimeUnixNano` computed from `payload.duration_ms`. LLM metadata is exposed
+as `gen_ai.*` attributes (GenAI semconv 1.27+): `gen_ai.system`,
+`gen_ai.request.model`, `gen_ai.usage.input_tokens`,
+`gen_ai.usage.output_tokens`, `gen_ai.operation.name`, and
+`gen_ai.response.finish_reasons`.
+
+Events **without** a `trace_id` become OTLP log records (`resourceLogs`).
 
 ## EventStream
 
@@ -132,6 +140,39 @@ with JSONLExporter("events.jsonl") as exporter:
         exporter.export(event)
 # flush + close called automatically
 ```
+
+---
+
+## OTelBridgeExporter
+
+Emits events through any configured OpenTelemetry `TracerProvider` — useful
+when the SDK is already initialised by auto-instrumentation and you want
+events to participate in the same trace pipeline.
+
+```bash
+pip install "llm-toolkit-schema[otel]"
+```
+
+```python
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import ConsoleSpanExporter, BatchSpanProcessor
+
+# Set up once at startup
+provider = TracerProvider()
+provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
+trace.set_tracer_provider(provider)
+
+from llm_toolkit_schema.export.otel_bridge import OTelBridgeExporter
+
+exporter = OTelBridgeExporter(tracer_name="llm-toolkit-schema")
+exporter.export(event)               # single event
+await exporter.export_batch(events)  # batch
+```
+
+Unlike `OTLPExporter`, this bridge delegates span lifecycle to the SDK —
+sampling decisions, `BatchSpanProcessor` flushing, and any other registered
+`SpanProcessor` instances all fire normally.
 
 ---
 

@@ -15,6 +15,7 @@ For optional features:
 pip install "llm-toolkit-schema[jsonschema]"   # JSON Schema validation
 pip install "llm-toolkit-schema[http]"         # Async OTLP/webhook export (httpx)
 pip install "llm-toolkit-schema[pydantic]"     # Pydantic v2 model layer
+pip install "llm-toolkit-schema[otel]"         # OTelBridgeExporter — TracerProvider integration
 ```
 
 Python 3.9+ is required.
@@ -150,7 +151,7 @@ events = [
 asyncio.run(exporter.export_batch(events))
 ```
 
-See [user_guide/export.md](user_guide/export.md) for OTLP and webhook export.
+See [user_guide/export.md](user_guide/export.md) for OTLP, webhook, and `OTelBridgeExporter` (TracerProvider integration).
 
 ## Next steps
 

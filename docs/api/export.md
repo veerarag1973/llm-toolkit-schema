@@ -93,7 +93,7 @@ OTel resource attributes attached to every exported OTLP payload.
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `service_name` | `str` | — | Value for the `service.name` resource attribute. |
-| `deployment_environment` | `str` | `"production"` | Value for `deployment.environment`. |
+| `deployment_environment` | `str` | `"production"` | Value for `deployment.environment.name` (semconv 1.21+). |
 | `extra` | `Dict[str, str]` | `{}` | Additional arbitrary resource attributes. |
 
 #### Methods
@@ -151,6 +151,14 @@ await exporter.export(event)
 
 Map a single event to an OTLP span dict (pure, no I/O).
 
+The returned dict is fully compliant with the OTel specification:
+
+- `kind: 3` (CLIENT)
+- `traceFlags: 1` (sampled)
+- `endTimeUnixNano` computed as `startTimeUnixNano + payload.duration_ms × 1 000 000`
+- `status.code` / `status.message` mapped from `payload.status` (`"error"`/`"timeout"` → ERROR; `"ok"` → OK)
+- `gen_ai.*` attributes (GenAI semconv 1.27+) populated from `payload.model_info`, `payload.token_usage`, and `payload.status`
+
 If the event has no `span_id`, a deterministic synthetic ID is derived.
 If the event has no `trace_id`, a zero-filled placeholder is used.
 
@@ -179,6 +187,123 @@ Export a sequence of events, batching spans and log records into separate HTTP r
 **Returns:** `List[Dict[str, Any]]` — list of OTLP record dicts.
 
 **Raises:** `ExportError` — if any HTTP request fails.
+
+---
+
+### `make_traceparent`
+
+```python
+def make_traceparent(
+    trace_id: str,
+    span_id: str,
+    *,
+    sampled: bool = True,
+) -> str
+```
+
+Construct a W3C TraceContext `traceparent` header (RFC 9429).
+
+**Args:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `trace_id` | `str` | — | 32-char lowercase hex trace ID. |
+| `span_id` | `str` | — | 16-char lowercase hex span ID. |
+| `sampled` | `bool` | `True` | When `True`, sets the sampled flag (`-01`); otherwise `-00`. |
+
+**Returns:** `str` — `"00-<trace_id>-<span_id>-01"` (or `-00`).
+
+**Example:**
+
+```python
+from llm_toolkit_schema.export.otlp import make_traceparent
+
+header = make_traceparent(event.trace_id, event.span_id)
+# → "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+```
+
+---
+
+### `extract_trace_context`
+
+```python
+def extract_trace_context(
+    headers: Mapping[str, str],
+) -> Optional[Dict[str, Any]]
+```
+
+Parse W3C TraceContext `traceparent` / `tracestate` headers.
+
+**Args:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `headers` | `Mapping[str, str]` | HTTP headers dict (case-insensitive lookup for `traceparent` / `tracestate`). |
+
+**Returns:** `Dict[str, Any]` with keys `trace_id`, `span_id`, `sampled` (`bool`), and optionally `tracestate` (`str`) — or `None` if no valid `traceparent` header is present.
+
+**Example:**
+
+```python
+from llm_toolkit_schema.export.otlp import extract_trace_context
+
+ctx = extract_trace_context({"traceparent": "00-abc...def-1234567890abcdef-01"})
+# ctx = {"trace_id": "abc...def", "span_id": "1234567890abcdef", "sampled": True}
+```
+
+---
+
+## `llm_toolkit_schema.export.otel_bridge` — OTel SDK Bridge Exporter
+
+Requires the `[otel]` optional extra: `pip install "llm-toolkit-schema[otel]"`.
+
+### `OTelBridgeExporter`
+
+```python
+class OTelBridgeExporter(
+    tracer_name: str = "llm-toolkit-schema",
+    tracer_version: str = "1.0",
+)
+```
+
+Exports events through any configured OpenTelemetry `TracerProvider`. Unlike
+`OTLPExporter` (which speaks the OTLP wire protocol directly), this bridge
+delegates the entire span lifecycle to the OTel SDK — sampling, processors,
+and all registered `SpanExporter` instances fire as normal.
+
+**Args:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `tracer_name` | `str` | `"llm-toolkit-schema"` | Instrumentation scope name. |
+| `tracer_version` | `str` | `"1.0"` | Instrumentation scope version. |
+
+**Example:**
+
+```python
+from llm_toolkit_schema.export.otel_bridge import OTelBridgeExporter
+
+exporter = OTelBridgeExporter(tracer_name="my-service")
+exporter.export(event)                # synchronous (starts + ends span immediately)
+await exporter.export_batch(events)   # async batch variant
+```
+
+#### Methods
+
+##### `export(event: Event) -> None`
+
+Emit a single span via the active `TracerProvider`.
+
+Sets `SpanKind.CLIENT`, maps `payload.status` to `StatusCode.OK/ERROR`, and
+sets all `gen_ai.*` + `llm.*` attributes.
+
+**Raises:** `ImportError` — if `opentelemetry-sdk` is not installed.
+
+##### `async export_batch(events: Sequence[Event]) -> None`
+
+Emit spans for all events via the active `TracerProvider`.
+
+**Raises:** `ImportError` — if `opentelemetry-sdk` is not installed.
 
 ---
 

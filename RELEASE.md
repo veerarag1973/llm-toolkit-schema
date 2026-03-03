@@ -1,8 +1,8 @@
 # llm-toolkit-schema PyPI Release Runbook
-# Version: 1.1.1 — 2026-03-15
-# Live at: https://pypi.org/project/llm-toolkit-schema/1.1.1/
+# Version: 1.1.2 — 2026-03-03
+# Live at: https://pypi.org/project/llm-toolkit-schema/1.1.2/
 #
-# PUBLISHED ✅ — wheel + sdist uploaded to PyPI on 2026-03-15
+# PENDING — ready to publish
 #
 # PREREQUISITES
 # ─────────────
@@ -30,20 +30,21 @@
 #   $env:TWINE_PASSWORD = "pypi-XXXXXXXXXX..."
 
 # ─────────────────────────────────────────────────────────
-# STEP 1: ✅ DONE — already published to PyPI
-# https://pypi.org/project/llm-toolkit-schema/1.1.1/
+# STEP 1: Build and upload to PyPI
+# ─────────────────────────────────────────────────────────
+# https://pypi.org/project/llm-toolkit-schema/1.1.2/
 #
 # Install:
-#   pip install llm-toolkit-schema==1.1.1
+#   pip install llm-toolkit-schema==1.1.2
 
 # ─────────────────────────────────────────────────────────
 # STEP 2: Create a GitHub release tag
 # ─────────────────────────────────────────────────────────
-git tag v1.1.1
-git push origin v1.1.1
+git tag v1.1.2
+git push origin v1.1.2
 # Then create a GitHub Release from the tag and attach:
-#   dist\llm_toolkit_schema-1.1.1.tar.gz
-#   dist\llm_toolkit_schema-1.1.1-py3-none-any.whl
+#   dist\llm_toolkit_schema-1.1.2.tar.gz
+#   dist\llm_toolkit_schema-1.1.2-py3-none-any.whl
 
 # ─────────────────────────────────────────────────────────
 # STEP 3: Connect Read the Docs

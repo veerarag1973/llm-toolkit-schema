@@ -5,7 +5,11 @@ connections or file handles.  Instantiate an exporter explicitly to activate it.
 
 Available exporters
 -------------------
-* :class:`~llm_toolkit_schema.export.otlp.OTLPExporter` — OTLP-compatible JSON/HTTP.
+* :class:`~llm_toolkit_schema.export.otlp.OTLPExporter` — OTLP/JSON HTTP exporter
+  (zero dependencies; builds OTLP wire format from stdlib).
+* :class:`~llm_toolkit_schema.export.otel_bridge.OTelBridgeExporter` — OpenTelemetry
+  SDK bridge that emits real OTel spans via a configured ``TracerProvider``.
+  Requires ``pip install "llm-toolkit-schema[otel]"``.
 * :class:`~llm_toolkit_schema.export.webhook.WebhookExporter` — HTTP with HMAC-SHA256
   request signing.
 * :class:`~llm_toolkit_schema.export.jsonl.JSONLExporter` — newline-delimited JSON for
@@ -14,6 +18,13 @@ Available exporters
   custom metrics via the Datadog Agent.
 * :class:`~llm_toolkit_schema.export.grafana.GrafanaLokiExporter` — Grafana Loki push
   exporter for structured log delivery.
+
+W3C TraceContext utilities
+--------------------------
+* :func:`~llm_toolkit_schema.export.otlp.make_traceparent` — build a ``traceparent``
+  header value for outgoing HTTP request propagation.
+* :func:`~llm_toolkit_schema.export.otlp.extract_trace_context` — parse a
+  ``traceparent`` / ``tracestate`` header dict into trace context fields.
 
 All exporters are async by default; every ``export`` / ``export_batch`` method
 is a coroutine.

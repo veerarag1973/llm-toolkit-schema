@@ -159,6 +159,17 @@ v1.1.1 — Security & correctness patch: ``Event.payload`` now returns a
         (``llm_toolkit_schema.namespaces.template``).  New streaming
         generators ``iter_file()`` / ``aiter_file()`` in
         ``llm_toolkit_schema.stream``.
+v1.1.2 — Full OpenTelemetry compliance: ``gen_ai.*`` semantic-convention
+        attributes (GenAI semconv 1.27+) emitted by ``to_otlp_span()``;
+        ``deployment.environment.name`` used in place of legacy
+        ``deployment.environment`` (semconv 1.21+); ``spanKind: CLIENT``
+        and ``traceFlags: 1`` (sampled) set on every span; ``endTimeUnixNano``
+        computed from ``payload.duration_ms``; ``status.code`` / ``status.message``
+        mapped from ``payload.status``.  New W3C TraceContext helpers
+        ``make_traceparent()`` and ``extract_trace_context()`` in
+        ``llm_toolkit_schema.export.otlp``.  New ``OTelBridgeExporter``
+        (``llm_toolkit_schema.export.otel_bridge``) emits events through any
+        configured ``TracerProvider`` — requires optional ``[otel]`` extra.
 """
 
 from llm_toolkit_schema.event import SCHEMA_VERSION, Event, Tags
@@ -295,7 +306,7 @@ from llm_toolkit_schema.namespaces import (
     ToolCall,
 )
 
-__version__: str = "1.1.1"
+__version__: str = "1.1.2"
 __all__: list[str] = [
     # Core
     "Event",

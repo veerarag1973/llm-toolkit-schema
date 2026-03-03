@@ -1236,4 +1236,4 @@ class TestTopLevelReexports:
 
     def test_version(self):
         import llm_toolkit_schema
-        assert llm_toolkit_schema.__version__ == "1.1.1"
+        assert llm_toolkit_schema.__version__ == "1.1.2"

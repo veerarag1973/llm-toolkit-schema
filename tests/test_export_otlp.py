@@ -29,12 +29,17 @@ from llm_toolkit_schema.exceptions import ExportError
 from llm_toolkit_schema.export.otlp import (
     OTLPExporter,
     ResourceAttributes,
+    _compute_end_nano,
     _derive_span_id,
     _event_to_attributes,
     _flatten_payload,
+    _gen_ai_attributes,
     _kv,
+    _map_span_status,
     _otlp_value,
     _ts_to_unix_nano,
+    extract_trace_context,
+    make_traceparent,
 )
 
 # ---------------------------------------------------------------------------
@@ -340,7 +345,7 @@ class TestResourceAttributes:
         ra = ResourceAttributes(service_name="svc", deployment_environment="staging")
         attrs = ra.to_otlp()
         keys = {a["key"] for a in attrs}
-        assert "deployment.environment" in keys
+        assert "deployment.environment.name" in keys
 
     def test_extra_attrs_included(self) -> None:
         ra = ResourceAttributes(
@@ -355,7 +360,7 @@ class TestResourceAttributes:
     def test_no_extra_attrs(self) -> None:
         ra = ResourceAttributes(service_name="svc")
         attrs = ra.to_otlp()
-        # Only service.name and deployment.environment
+        # Only service.name and deployment.environment.name
         assert len(attrs) == 2
 
     def test_extra_empty_dict(self) -> None:
@@ -734,6 +739,317 @@ class TestOTLPRepr:
     def test_repr_does_not_leak_headers(self) -> None:
         exp = OTLPExporter("http://localhost", headers={"Authorization": "Bearer top-secret"})
         assert "top-secret" not in repr(exp)
+
+
+# ---------------------------------------------------------------------------
+# Performance: serialisation of 500 events in < 200 ms
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# _gen_ai_attributes
+# ---------------------------------------------------------------------------
+
+
+class TestGenAiAttributes:
+    """Tests for the gen_ai.* semantic convention attribute mapper."""
+
+    def _event(self, payload: dict) -> Event:
+        return Event(
+            event_type="llm.trace.span.completed",
+            source="test@1.0.0",
+            payload=payload,
+        )
+
+    def test_span_name_maps_to_gen_ai_operation_name(self) -> None:
+        event = self._event({"span_name": "run_agent", "status": "ok"})
+        keys = {kv["key"] for kv in _gen_ai_attributes(event)}
+        assert "gen_ai.operation.name" in keys
+
+    def test_model_provider_maps_to_gen_ai_system(self) -> None:
+        event = self._event({"model": {"name": "gpt-4o", "provider": "openai"}, "status": "ok"})
+        attrs = {kv["key"]: kv["value"] for kv in _gen_ai_attributes(event)}
+        assert attrs["gen_ai.system"]["stringValue"] == "openai"
+
+    def test_model_name_maps_to_gen_ai_request_model(self) -> None:
+        event = self._event({"model": {"name": "gpt-4o", "provider": "openai"}, "status": "ok"})
+        attrs = {kv["key"]: kv["value"] for kv in _gen_ai_attributes(event)}
+        assert attrs["gen_ai.request.model"]["stringValue"] == "gpt-4o"
+
+    def test_model_version_maps_to_gen_ai_request_model_version(self) -> None:
+        event = self._event(
+            {"model": {"name": "gpt-4o", "provider": "openai", "version": "2024-05-13"}, "status": "ok"}
+        )
+        attrs = {kv["key"]: kv["value"] for kv in _gen_ai_attributes(event)}
+        assert attrs["gen_ai.request.model_version"]["stringValue"] == "2024-05-13"
+
+    def test_token_usage_prompt_maps_to_input_tokens(self) -> None:
+        event = self._event(
+            {"token_usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+             "status": "ok"}
+        )
+        attrs = {kv["key"]: kv["value"] for kv in _gen_ai_attributes(event)}
+        assert attrs["gen_ai.usage.input_tokens"]["intValue"] == "10"
+
+    def test_token_usage_completion_maps_to_output_tokens(self) -> None:
+        event = self._event(
+            {"token_usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+             "status": "ok"}
+        )
+        attrs = {kv["key"]: kv["value"] for kv in _gen_ai_attributes(event)}
+        assert attrs["gen_ai.usage.output_tokens"]["intValue"] == "5"
+
+    def test_status_error_maps_to_finish_reason_error(self) -> None:
+        event = self._event({"status": "error", "error": "upstream failure"})
+        attrs = {kv["key"]: kv["value"] for kv in _gen_ai_attributes(event)}
+        assert attrs["gen_ai.response.finish_reasons"]["stringValue"] == "error"
+
+    def test_status_timeout_maps_to_finish_reason_timeout(self) -> None:
+        event = self._event({"status": "timeout"})
+        attrs = {kv["key"]: kv["value"] for kv in _gen_ai_attributes(event)}
+        assert attrs["gen_ai.response.finish_reasons"]["stringValue"] == "timeout"
+
+    def test_status_ok_maps_to_finish_reason_stop(self) -> None:
+        event = self._event({"status": "ok"})
+        attrs = {kv["key"]: kv["value"] for kv in _gen_ai_attributes(event)}
+        assert attrs["gen_ai.response.finish_reasons"]["stringValue"] == "stop"
+
+    def test_error_field_without_status_maps_to_finish_reason_error(self) -> None:
+        event = self._event({"error": "some error", "dummy": "val"})
+        attrs = {kv["key"]: kv["value"] for kv in _gen_ai_attributes(event)}
+        assert attrs["gen_ai.response.finish_reasons"]["stringValue"] == "error"
+
+    def test_no_model_no_tokens_empty_payload_returns_empty(self) -> None:
+        event = self._event({"dummy": "value"})
+        assert _gen_ai_attributes(event) == []
+
+
+# ---------------------------------------------------------------------------
+# _map_span_status
+# ---------------------------------------------------------------------------
+
+
+class TestMapSpanStatus:
+    """Tests for the OTLP SpanStatus mapper."""
+
+    def _event(self, payload: dict) -> Event:
+        return Event(
+            event_type="llm.trace.span.completed",
+            source="test@1.0.0",
+            payload=payload,
+        )
+
+    def test_status_ok_returns_code_1(self) -> None:
+        assert _map_span_status(self._event({"status": "ok"})) == {"code": 1}
+
+    def test_no_status_defaults_to_ok(self) -> None:
+        assert _map_span_status(self._event({"value": 1})) == {"code": 1}
+
+    def test_status_error_with_message_returns_code_2_and_message(self) -> None:
+        result = _map_span_status(self._event({"status": "error", "error": "bad request"}))
+        assert result["code"] == 2
+        assert result["message"] == "bad request"
+
+    def test_status_error_without_message_returns_code_2_no_message(self) -> None:
+        result = _map_span_status(self._event({"status": "error"}))
+        assert result["code"] == 2
+        assert "message" not in result
+
+    def test_status_timeout_returns_code_2_and_default_message(self) -> None:
+        result = _map_span_status(self._event({"status": "timeout"}))
+        assert result["code"] == 2
+        assert "timed out" in result["message"].lower()
+
+
+# ---------------------------------------------------------------------------
+# _compute_end_nano
+# ---------------------------------------------------------------------------
+
+
+class TestComputeEndNano:
+    """Tests for the endTimeUnixNano computation helper."""
+
+    def _event(self, payload: dict) -> Event:
+        return Event(
+            event_type="llm.trace.span.completed",
+            source="test@1.0.0",
+            payload=payload,
+        )
+
+    def test_duration_ms_adds_to_start_nano(self) -> None:
+        start = 1_000_000_000_000
+        event = self._event({"duration_ms": 100.0, "x": 1})
+        end = _compute_end_nano(start, event)
+        assert end == start + 100_000_000
+
+    def test_no_duration_ms_returns_start_nano(self) -> None:
+        start = 1_000_000_000_000
+        event = self._event({"x": 1})
+        assert _compute_end_nano(start, event) == start
+
+
+# ---------------------------------------------------------------------------
+# to_otlp_span — OTel wire-format fields
+# ---------------------------------------------------------------------------
+
+
+class TestToOtlpSpanOtelFields:
+    """Verify the new OTel wire-format fields on generated spans."""
+
+    def test_span_has_kind_client(self) -> None:
+        exp = _make_exporter()
+        event = _make_event(trace_id="a" * 32)
+        span = exp.to_otlp_span(event)
+        assert span["kind"] == 3  # SPAN_KIND_CLIENT
+
+    def test_span_has_trace_flags_sampled(self) -> None:
+        exp = _make_exporter()
+        event = _make_event(trace_id="a" * 32)
+        span = exp.to_otlp_span(event)
+        assert span["traceFlags"] == 1
+
+    def test_end_time_equals_start_when_no_duration(self) -> None:
+        exp = _make_exporter()
+        event = _make_event(trace_id="a" * 32, payload={"status": "ok"})
+        span = exp.to_otlp_span(event)
+        assert span["endTimeUnixNano"] == span["startTimeUnixNano"]
+
+    def test_end_time_greater_than_start_when_duration_present(self) -> None:
+        exp = _make_exporter()
+        event = _make_event(
+            trace_id="a" * 32,
+            payload={"status": "ok", "duration_ms": 250.0},
+        )
+        span = exp.to_otlp_span(event)
+        assert int(span["endTimeUnixNano"]) > int(span["startTimeUnixNano"])
+
+    def test_error_payload_produces_status_code_2(self) -> None:
+        exp = _make_exporter()
+        event = _make_event(
+            trace_id="a" * 32,
+            payload={"status": "error", "error": "upstream failed"},
+        )
+        span = exp.to_otlp_span(event)
+        assert span["status"]["code"] == 2
+        assert span["status"]["message"] == "upstream failed"
+
+    def test_gen_ai_attributes_present_in_span(self) -> None:
+        exp = _make_exporter()
+        event = _make_event(
+            trace_id="a" * 32,
+            payload={"status": "ok", "model": {"name": "gpt-4o", "provider": "openai"}},
+        )
+        span = exp.to_otlp_span(event)
+        attr_keys = {a["key"] for a in span["attributes"]}
+        assert "gen_ai.system" in attr_keys
+        assert "gen_ai.request.model" in attr_keys
+
+
+# ---------------------------------------------------------------------------
+# make_traceparent
+# ---------------------------------------------------------------------------
+
+
+class TestMakeTraceparent:
+    """Tests for the W3C traceparent header builder."""
+
+    _TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
+    _SPAN = "00f067aa0ba902b7"
+
+    def test_produces_correct_format(self) -> None:
+        result = make_traceparent(self._TRACE, self._SPAN)
+        assert result == f"00-{self._TRACE}-{self._SPAN}-01"
+
+    def test_sampled_false_uses_00_flag(self) -> None:
+        result = make_traceparent(self._TRACE, self._SPAN, sampled=False)
+        assert result.endswith("-00")
+
+    def test_sampled_true_uses_01_flag(self) -> None:
+        result = make_traceparent(self._TRACE, self._SPAN, sampled=True)
+        assert result.endswith("-01")
+
+    def test_invalid_trace_id_raises(self) -> None:
+        with pytest.raises(ValueError, match="trace_id"):
+            make_traceparent("short", self._SPAN)
+
+    def test_invalid_span_id_raises(self) -> None:
+        with pytest.raises(ValueError, match="span_id"):
+            make_traceparent(self._TRACE, "tooshort")
+
+    def test_uppercase_trace_id_raises(self) -> None:
+        with pytest.raises(ValueError, match="trace_id"):
+            make_traceparent(self._TRACE.upper(), self._SPAN)
+
+
+# ---------------------------------------------------------------------------
+# extract_trace_context
+# ---------------------------------------------------------------------------
+
+
+class TestExtractTraceContext:
+    """Tests for the W3C traceparent / tracestate header parser."""
+
+    _TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
+    _SPAN = "00f067aa0ba902b7"
+
+    def _make_headers(self, sampled: bool = True, **extra: str) -> dict:
+        flags = "01" if sampled else "00"
+        return {"traceparent": f"00-{self._TRACE}-{self._SPAN}-{flags}", **extra}
+
+    def test_valid_traceparent_returns_context(self) -> None:
+        ctx = extract_trace_context(self._make_headers())
+        assert ctx is not None
+        assert ctx["trace_id"] == self._TRACE
+        assert ctx["span_id"] == self._SPAN
+        assert ctx["sampled"] is True
+
+    def test_not_sampled_flag_returns_false(self) -> None:
+        ctx = extract_trace_context(self._make_headers(sampled=False))
+        assert ctx is not None
+        assert ctx["sampled"] is False
+
+    def test_tracestate_included_when_present(self) -> None:
+        headers = {**self._make_headers(), "tracestate": "vendor=abc"}
+        ctx = extract_trace_context(headers)
+        assert ctx is not None
+        assert ctx["tracestate"] == "vendor=abc"
+
+    def test_case_insensitive_header_key(self) -> None:
+        headers = {"Traceparent": f"00-{self._TRACE}-{self._SPAN}-01"}
+        ctx = extract_trace_context(headers)
+        assert ctx is not None
+        assert ctx["trace_id"] == self._TRACE
+
+    def test_missing_traceparent_returns_none(self) -> None:
+        assert extract_trace_context({}) is None
+
+    def test_malformed_too_few_parts_returns_none(self) -> None:
+        assert extract_trace_context({"traceparent": "00-abc"}) is None
+
+    def test_non_zero_zero_version_returns_none(self) -> None:
+        assert extract_trace_context(
+            {"traceparent": f"01-{self._TRACE}-{self._SPAN}-01"}
+        ) is None
+
+    def test_wrong_trace_id_length_returns_none(self) -> None:
+        assert extract_trace_context(
+            {"traceparent": f"00-{'a' * 16}-{self._SPAN}-01"}
+        ) is None
+
+    def test_wrong_span_id_length_returns_none(self) -> None:
+        assert extract_trace_context(
+            {"traceparent": f"00-{self._TRACE}-{'a' * 8}-01"}
+        ) is None
+
+    def test_invalid_trace_id_chars_returns_none(self) -> None:
+        assert extract_trace_context(
+            {"traceparent": f"00-{'x' * 32}-{self._SPAN}-01"}
+        ) is None
+
+    def test_invalid_span_id_chars_returns_none(self) -> None:
+        assert extract_trace_context(
+            {"traceparent": f"00-{self._TRACE}-{'z' * 16}-01"}
+        ) is None
 
 
 # ---------------------------------------------------------------------------

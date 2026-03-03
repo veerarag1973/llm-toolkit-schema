@@ -18,7 +18,7 @@ pip install llm-toolkit-schema
 | `jsonschema` | `pip install "llm-toolkit-schema[jsonschema]"` | `validate_event` with full JSON Schema validation |
 | `http` | `pip install "llm-toolkit-schema[http]"` | `OTLPExporter` and `WebhookExporter` (stdlib transport; reserved for future `httpx` upgrade) |
 | `pydantic` | `pip install "llm-toolkit-schema[pydantic]"` | `llm_toolkit_schema.models` — Pydantic v2 model layer, `model_json_schema()` |
-| `otel` | `pip install "llm-toolkit-schema[otel]"` | OpenTelemetry SDK integration (`opentelemetry-sdk`) |
+| `otel` | `pip install "llm-toolkit-schema[otel]"` | `OTelBridgeExporter` — emits events through any configured `TracerProvider` (`opentelemetry-sdk>=1.24`) |
 | `kafka` | `pip install "llm-toolkit-schema[kafka]"` | `EventStream.from_kafka()` via `kafka-python>=2.0` |
 | `langchain` | `pip install "llm-toolkit-schema[langchain]"` | `LLMSchemaCallbackHandler` via `langchain-core>=0.2` |
 | `llamaindex` | `pip install "llm-toolkit-schema[llamaindex]"` | `LLMSchemaEventHandler` via `llama-index-core>=0.10` |
@@ -49,7 +49,7 @@ all optional extras.
 
 ```python
 import llm_toolkit_schema
-print(llm_toolkit_schema.__version__)   # 1.1.0
+print(llm_toolkit_schema.__version__)   # 1.1.2
 print(llm_toolkit_schema.SCHEMA_VERSION)  # 1.0
 
 from llm_toolkit_schema import Event, EventType

@@ -35,7 +35,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from llm_toolkit_schema.event import Event
 from llm_toolkit_schema.exceptions import ExportError
 
-__all__ = ["OTLPExporter", "ResourceAttributes"]
+__all__ = ["OTLPExporter", "ResourceAttributes", "make_traceparent", "extract_trace_context"]
 
 # Scope name embedded in every OTLP payload.
 _SCOPE_NAME = "llm-toolkit-schema"
@@ -81,7 +81,8 @@ class ResourceAttributes:
         """Return a list of OTLP ``KeyValue`` dicts for the resource."""
         attrs: List[Dict[str, Any]] = [
             _kv("service.name", self.service_name),
-            _kv("deployment.environment", self.deployment_environment),
+            # deployment.environment.name supersedes deployment.environment (semconv 1.21+)
+            _kv("deployment.environment.name", self.deployment_environment),
         ]
         for k, v in self.extra.items():
             attrs.append(_kv(k, v))
@@ -148,6 +149,122 @@ def _derive_span_id(event_id: str) -> str:
     return hashlib.sha256(event_id.encode("utf-8")).hexdigest()[:16]
 
 
+# ---------------------------------------------------------------------------
+# OpenTelemetry semantic convention helpers
+# ---------------------------------------------------------------------------
+
+# OTLP StatusCode integers (google.rpc.Status / OTLP spec).
+_STATUS_CODE_OK = 1
+_STATUS_CODE_ERROR = 2
+
+
+def _gen_ai_attributes(event: "Event") -> List[Dict[str, Any]]:
+    """Build ``gen_ai.*`` OpenTelemetry GenAI semantic convention attributes.
+
+    Maps model info, token usage, and operation metadata from the event payload
+    to the standard OTel GenAI semconv namespace (semconv 1.27+).
+
+    See: https://opentelemetry.io/docs/specs/semconv/gen-ai/
+
+    Args:
+        event: The event whose payload is inspected.
+
+    Returns:
+        A (possibly empty) list of OTLP ``KeyValue`` dicts.
+    """
+    attrs: List[Dict[str, Any]] = []
+    payload = event.payload
+
+    # gen_ai.operation.name — human-readable span label
+    span_name = payload.get("span_name")
+    if span_name:
+        attrs.append(_kv("gen_ai.operation.name", str(span_name)))
+
+    # gen_ai.system / gen_ai.request.model — from nested ModelInfo dict
+    model = payload.get("model")
+    if isinstance(model, dict):
+        provider = model.get("provider")
+        if provider:
+            attrs.append(_kv("gen_ai.system", str(provider)))
+        name = model.get("name")
+        if name:
+            attrs.append(_kv("gen_ai.request.model", str(name)))
+        version = model.get("version")
+        if version:
+            attrs.append(_kv("gen_ai.request.model_version", str(version)))
+
+    # gen_ai.usage.input_tokens / gen_ai.usage.output_tokens
+    token_usage = payload.get("token_usage")
+    if isinstance(token_usage, dict):
+        prompt_tokens = token_usage.get("prompt_tokens")
+        if prompt_tokens is not None:
+            attrs.append(_kv("gen_ai.usage.input_tokens", int(prompt_tokens)))
+        completion_tokens = token_usage.get("completion_tokens")
+        if completion_tokens is not None:
+            attrs.append(_kv("gen_ai.usage.output_tokens", int(completion_tokens)))
+
+    # gen_ai.response.finish_reasons — derived from status / error presence
+    status = payload.get("status")
+    error = payload.get("error")
+    if status == "error" or error:
+        attrs.append(_kv("gen_ai.response.finish_reasons", "error"))
+    elif status == "timeout":
+        attrs.append(_kv("gen_ai.response.finish_reasons", "timeout"))
+    elif status == "ok":
+        attrs.append(_kv("gen_ai.response.finish_reasons", "stop"))
+
+    return attrs
+
+
+def _map_span_status(event: "Event") -> Dict[str, Any]:
+    """Map event payload ``status`` to an OTLP ``SpanStatus`` dict.
+
+    ``"error"`` and ``"timeout"`` outcomes yield ``STATUS_CODE_ERROR`` (2).
+    Everything else yields ``STATUS_CODE_OK`` (1).  An error message is
+    included when the payload carries an ``error`` field.
+
+    Args:
+        event: The event carrying a ``status`` and optional ``error`` field.
+
+    Returns:
+        An OTLP ``{code, [message]}`` status dict.
+    """
+    payload = event.payload
+    status = payload.get("status", "ok")
+    if status in ("error", "timeout"):
+        result: Dict[str, Any] = {"code": _STATUS_CODE_ERROR}
+        error_msg = payload.get("error")
+        if error_msg:
+            result["message"] = str(error_msg)
+        elif status == "timeout":
+            result["message"] = "Operation timed out"
+        return result
+    return {"code": _STATUS_CODE_OK}
+
+
+def _compute_end_nano(start_nano: int, event: "Event") -> int:
+    """Compute ``endTimeUnixNano`` from start time plus payload ``duration_ms``.
+
+    If ``duration_ms`` is absent or cannot be parsed, falls back to
+    ``start_nano`` (zero-duration span — should only happen for events without
+    timing information such as ``span.started`` events).
+
+    Args:
+        start_nano: Span start time in nanoseconds since Unix epoch.
+        event:      Event that may carry a ``duration_ms`` payload field.
+
+    Returns:
+        End time in nanoseconds since Unix epoch.
+    """
+    duration_ms = event.payload.get("duration_ms")
+    if duration_ms is not None:
+        try:
+            return start_nano + int(float(duration_ms) * 1_000_000)
+        except (TypeError, ValueError):
+            pass
+    return start_nano
+
+
 def _flatten_payload(
     payload: Dict[str, Any],
     prefix: str = "llm.payload",
@@ -211,6 +328,10 @@ def _event_to_attributes(event: Event) -> List[Dict[str, Any]]:
 
     # Payload (flattened)
     attrs.extend(_flatten_payload(event.payload))
+
+    # OpenTelemetry GenAI semantic conventions (semconv 1.27+)
+    # These sit alongside the llm.* namespace so both ecosystems work.
+    attrs.extend(_gen_ai_attributes(event))
 
     return attrs
 
@@ -290,6 +411,7 @@ class OTLPExporter:
             An OTLP-compatible span dict.
         """
         ts_nano = _ts_to_unix_nano(event.timestamp)
+        end_nano = _compute_end_nano(ts_nano, event)
         span_id = event.span_id or _derive_span_id(event.event_id)
         trace_id = event.trace_id or ("0" * 32)
 
@@ -297,10 +419,14 @@ class OTLPExporter:
             "traceId": trace_id,
             "spanId": span_id,
             "name": event.event_type,
+            # SPAN_KIND_CLIENT (3) — LLM calls are outgoing client requests.
+            "kind": 3,
             "startTimeUnixNano": str(ts_nano),
-            "endTimeUnixNano": str(ts_nano),
+            "endTimeUnixNano": str(end_nano),
             "attributes": _event_to_attributes(event),
-            "status": {"code": 1},  # STATUS_CODE_OK
+            "status": _map_span_status(event),
+            # Bit 0 set = sampled (W3C TraceContext §7.1.2)
+            "traceFlags": 1,
         }
         if event.parent_span_id is not None:
             span["parentSpanId"] = event.parent_span_id
@@ -490,3 +616,116 @@ class OTLPExporter:
             f"OTLPExporter(endpoint={self._endpoint!r}, "
             f"batch_size={self._batch_size!r})"
         )
+
+
+# ---------------------------------------------------------------------------
+# W3C TraceContext utilities  (RFC 9429)
+# ---------------------------------------------------------------------------
+
+
+def make_traceparent(
+    trace_id: str,
+    span_id: str,
+    *,
+    sampled: bool = True,
+) -> str:
+    """Build a W3C ``traceparent`` header value.
+
+    Produces a version-``00`` ``traceparent`` string that can be injected into
+    outgoing HTTP requests to propagate distributed trace context.
+
+    Args:
+        trace_id: 32 lowercase hex characters (OTel trace ID).
+        span_id:  16 lowercase hex characters (current span ID).
+        sampled:  Whether the trace is sampled.  Sets the ``sampled`` flag
+                  (W3C TraceContext §7.1.2).  Defaults to ``True``.
+
+    Returns:
+        A ``traceparent`` header value, e.g.
+        ``"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"``.
+
+    Raises:
+        ValueError: If ``trace_id`` or ``span_id`` do not match the required
+            format.
+
+    Example::
+
+        headers["traceparent"] = make_traceparent(
+            event.trace_id, event.span_id
+        )
+    """
+    if len(trace_id) != 32 or not all(c in "0123456789abcdef" for c in trace_id):  # noqa: C419
+        raise ValueError(
+            f"trace_id must be 32 lowercase hex characters; got {trace_id!r}"
+        )
+    if len(span_id) != 16 or not all(c in "0123456789abcdef" for c in span_id):  # noqa: C419
+        raise ValueError(
+            f"span_id must be 16 lowercase hex characters; got {span_id!r}"
+        )
+    flags = "01" if sampled else "00"
+    return f"00-{trace_id}-{span_id}-{flags}"
+
+
+def extract_trace_context(
+    headers: Dict[str, str],
+) -> Optional[Dict[str, Any]]:
+    """Extract W3C TraceContext from a ``traceparent`` / ``tracestate`` header dict.
+
+    Parses the incoming ``traceparent`` header (case-insensitive key lookup)
+    and returns the extracted trace context.  Returns ``None`` if the header
+    is absent or malformed.
+
+    Args:
+        headers: A dict of HTTP headers (keys are matched case-insensitively).
+
+    Returns:
+        A dict with keys ``trace_id``, ``span_id``, ``sampled`` (bool), and
+        optionally ``tracestate`` (str) if that header is present; or ``None``
+        if no valid ``traceparent`` was found.
+
+    Example::
+
+        ctx = extract_trace_context(request.headers)
+        if ctx:
+            event = Event(
+                event_type=...,
+                source=...,
+                payload=...,
+                trace_id=ctx["trace_id"],
+                parent_span_id=ctx["span_id"],
+            )
+    """
+    # Case-insensitive header lookup.
+    lower_headers = {k.lower(): v for k, v in headers.items()}
+    traceparent = lower_headers.get("traceparent")
+    if not traceparent:
+        return None
+
+    parts = traceparent.strip().split("-")
+    if len(parts) != 4:
+        return None
+    version, trace_id, parent_span_id, trace_flags_hex = parts
+    # Only version 00 is supported (future versions may have more parts).
+    if version != "00":
+        return None
+    if len(trace_id) != 32 or len(parent_span_id) != 16:
+        return None
+    if not all(c in "0123456789abcdef" for c in trace_id):  # noqa: C419
+        return None
+    if not all(c in "0123456789abcdef" for c in parent_span_id):  # noqa: C419
+        return None
+
+    try:
+        flags_int = int(trace_flags_hex, 16)
+    except ValueError:
+        return None
+
+    result: Dict[str, Any] = {
+        "trace_id": trace_id,
+        "span_id": parent_span_id,
+        "sampled": bool(flags_int & 0x01),
+    }
+    tracestate = lower_headers.get("tracestate")
+    if tracestate:
+        result["tracestate"] = tracestate
+    return result

@@ -12,6 +12,45 @@ this project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## 1.1.2 — 2026-03-15
+
+### Added
+
+- **`OTelBridgeExporter`** (`llm_toolkit_schema.export.otel_bridge`) — exports
+  events through any configured OpenTelemetry `TracerProvider`. Requires the
+  `[otel]` extra (`opentelemetry-sdk>=1.24`). Unlike `OTLPExporter`, this
+  bridge uses the SDK's span lifecycle so all registered `SpanProcessor`
+  instances (sampling, batching, auto-instrumentation hooks) fire normally.
+- **`make_traceparent(trace_id, span_id, *, sampled=True)`**
+  (`llm_toolkit_schema.export.otlp`) — constructs a W3C TraceContext
+  `traceparent` header string (RFC 9429).
+- **`extract_trace_context(headers)`** (`llm_toolkit_schema.export.otlp`) —
+  parses `traceparent` / `tracestate` headers and returns a dict of
+  `{trace_id, span_id, sampled[, tracestate]}`.
+- **`gen_ai.*` semantic convention attributes** (GenAI semconv 1.27+) —
+  `to_otlp_span()` now emits `gen_ai.system`, `gen_ai.request.model`,
+  `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`,
+  `gen_ai.operation.name`, and `gen_ai.response.finish_reasons` from the
+  corresponding `payload.*` fields, enabling native LLM dashboards in Grafana,
+  Honeycomb, and Dynatrace.
+
+### Fixed
+
+- **`deployment.environment.name`** — `ResourceAttributes.to_otlp()` now
+  emits the semconv 1.21+ key `deployment.environment.name` instead of the
+  legacy `deployment.environment`.
+- **`spanKind`** — `to_otlp_span()` now sets `kind: 3` (CLIENT) as required
+  by the OTLP specification.
+- **`traceFlags`** — `to_otlp_span()` now sets `traceFlags: 1` (sampled) on
+  every span context.
+- **`endTimeUnixNano`** — computed correctly as
+  `startTimeUnixNano + payload.duration_ms × 1 000 000`; previously omitted.
+- **`status.code` / `status.message`** — `payload.status` values `"error"` and
+  `"timeout"` now map to OTLP `STATUS_CODE_ERROR` (2); `"ok"` maps to
+  `STATUS_CODE_OK` (1). Previously the status block was always empty.
+
+---
+
 ## 1.1.1 — 2026-03-15
 
 ### Fixed
