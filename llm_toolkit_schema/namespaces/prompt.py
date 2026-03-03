@@ -281,9 +281,157 @@ class PromptRolledBackPayload:
         )
 
 
+@dataclass(frozen=True)
+class PromptRejectedPayload:
+    """Payload for ``llm.prompt.rejected``.
+
+    Emitted when a promotion request is rejected in the approval workflow.
+    The ``rejection_reason`` is mandatory — it is required for audit compliance
+    so that rejection decisions are always traceable.
+
+    Parameters
+    ----------
+    prompt_id:
+        Unique identifier for the prompt.
+    version:
+        Version that was rejected.
+    rejected_by:
+        Identifier of the reviewer who rejected the version.
+    rejection_reason:
+        Mandatory human-readable reason for rejection (audit trail).
+    """
+
+    prompt_id: str
+    version: str
+    rejected_by: str
+    rejection_reason: str
+
+    # -----------------------------------------------------------------
+    # Validation
+    # -----------------------------------------------------------------
+
+    def __post_init__(self) -> None:
+        for attr in ("prompt_id", "version", "rejected_by", "rejection_reason"):
+            value = getattr(self, attr)
+            if not value or not isinstance(value, str):
+                raise ValueError(f"PromptRejectedPayload.{attr} must be a non-empty string")
+
+    # -----------------------------------------------------------------
+    # Serialisation
+    # -----------------------------------------------------------------
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Return a plain dict suitable for ``Event.payload``."""
+        return {
+            "prompt_id": self.prompt_id,
+            "version": self.version,
+            "rejected_by": self.rejected_by,
+            "rejection_reason": self.rejection_reason,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "PromptRejectedPayload":
+        """Reconstruct a :class:`PromptRejectedPayload` from a plain dict."""
+        return cls(
+            prompt_id=str(data["prompt_id"]),
+            version=str(data["version"]),
+            rejected_by=str(data["rejected_by"]),
+            rejection_reason=str(data["rejection_reason"]),
+        )
+
+
+@dataclass(frozen=True)
+class PromptRenderedPayload:
+    """Payload for ``llm.prompt.rendered``.
+
+    Emitted by promptlock when a versioned prompt is fetched from the registry
+    and rendered with variable substitution (``{{variable_name}}`` syntax)
+    before being sent to a model.  Distinct from
+    :class:`~llm_toolkit_schema.namespaces.template.TemplateRenderedPayload`,
+    which covers the promptblock template engine.
+
+    Parameters
+    ----------
+    prompt_id:
+        Unique identifier for the prompt that was rendered.
+    version:
+        Version of the prompt that was rendered.
+    environment:
+        Environment in which the prompt was rendered, e.g.
+        ``"development"``, ``"staging"``, ``"production"``.
+    variable_count:
+        Number of template variables substituted during rendering.
+    render_duration_ms:
+        Optional wall-clock render time in milliseconds.
+    output_hash:
+        Optional SHA-256 hex digest of the rendered output, for tamper-
+        evident audit trail verification.
+    """
+
+    prompt_id: str
+    version: str
+    environment: str
+    variable_count: int
+    render_duration_ms: Optional[float] = None
+    output_hash: Optional[str] = None
+
+    # -----------------------------------------------------------------
+    # Validation
+    # -----------------------------------------------------------------
+
+    def __post_init__(self) -> None:
+        for attr in ("prompt_id", "version", "environment"):
+            value = getattr(self, attr)
+            if not value or not isinstance(value, str):
+                raise ValueError(f"PromptRenderedPayload.{attr} must be a non-empty string")
+        if not isinstance(self.variable_count, int) or self.variable_count < 0:
+            raise ValueError("PromptRenderedPayload.variable_count must be a non-negative int")
+        if self.render_duration_ms is not None and (
+            not isinstance(self.render_duration_ms, (int, float))
+            or self.render_duration_ms < 0
+        ):
+            raise ValueError(
+                "PromptRenderedPayload.render_duration_ms must be a non-negative number or None"
+            )
+        if self.output_hash is not None and not isinstance(self.output_hash, str):
+            raise TypeError("PromptRenderedPayload.output_hash must be a string or None")
+
+    # -----------------------------------------------------------------
+    # Serialisation
+    # -----------------------------------------------------------------
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Return a plain dict suitable for ``Event.payload``."""
+        result: Dict[str, Any] = {
+            "prompt_id": self.prompt_id,
+            "version": self.version,
+            "environment": self.environment,
+            "variable_count": self.variable_count,
+        }
+        if self.render_duration_ms is not None:
+            result["render_duration_ms"] = self.render_duration_ms
+        if self.output_hash is not None:
+            result["output_hash"] = self.output_hash
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "PromptRenderedPayload":
+        """Reconstruct a :class:`PromptRenderedPayload` from a plain dict."""
+        return cls(
+            prompt_id=str(data["prompt_id"]),
+            version=str(data["version"]),
+            environment=str(data["environment"]),
+            variable_count=int(data["variable_count"]),
+            render_duration_ms=data.get("render_duration_ms"),
+            output_hash=data.get("output_hash"),
+        )
+
+
 __all__: list[str] = [
     "PromptSavedPayload",
     "PromptPromotedPayload",
     "PromptApprovedPayload",
     "PromptRolledBackPayload",
+    "PromptRejectedPayload",
+    "PromptRenderedPayload",
 ]

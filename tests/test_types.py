@@ -51,9 +51,9 @@ class TestEventTypeValues:
         assert "llm.trace.span.completed" == EventType.TRACE_SPAN_COMPLETED
 
     def test_total_count(self) -> None:
-        """Ensure all 11 namespaces are represented."""
+        """Ensure all 12 namespaces are represented."""
         namespaces = {et.namespace for et in EventType}
-        assert len(namespaces) == 11  # noqa: PLR2004
+        assert len(namespaces) == 12  # noqa: PLR2004
 
 
 # ---------------------------------------------------------------------------
@@ -261,7 +261,8 @@ class TestNamespaceOf:
         assert "llm.trace" in _RESERVED_NAMESPACES
         assert "llm.guard" in _RESERVED_NAMESPACES
         assert "llm.audit" in _RESERVED_NAMESPACES
-        assert len(_RESERVED_NAMESPACES) == 11  # noqa: PLR2004
+        assert "llm.inspect" in _RESERVED_NAMESPACES
+        assert len(_RESERVED_NAMESPACES) == 12  # noqa: PLR2004
 
 
 # ---------------------------------------------------------------------------

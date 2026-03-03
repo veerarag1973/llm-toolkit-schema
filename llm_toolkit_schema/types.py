@@ -24,6 +24,7 @@ Namespace                     Tool            Purpose
 ``llm.redact.*``              llm-redact      PII detection and redaction
 ``llm.fence.*``               llm-fence       Output-format validation + retry
 ``llm.cache.*``               llm-cache       Semantic cache hit/miss events
+``llm.inspect.*``             llm-inspect     LLM output inspection reports
 ============================  ==============  ================================
 
 Design
@@ -73,6 +74,7 @@ _RESERVED_NAMESPACES: Final[frozenset[str]] = frozenset(
         "llm.eval",
         "llm.fence",
         "llm.guard",
+        "llm.inspect",
         "llm.prompt",
         "llm.redact",
         "llm.template",
@@ -171,6 +173,11 @@ class EventType(str, Enum):
         "llm.prompt.rejected",
         "promptlock",
         "A prompt version was rejected in the review workflow.",
+    )
+    PROMPT_RENDERED = (
+        "llm.prompt.rendered",
+        "promptlock",
+        "A versioned prompt was fetched from the registry and rendered with variable substitution.",
     )
 
     # ------------------------------------------------------------------
@@ -342,6 +349,20 @@ class EventType(str, Enum):
         "llm.cache.evicted",
         "llm-cache",
         "A cache entry was evicted.",
+    )
+
+    # ------------------------------------------------------------------
+    # llm.inspect.*  — llm-inspect
+    # ------------------------------------------------------------------
+    INSPECT_REPORT_GENERATED = (
+        "llm.inspect.report",
+        "llm-inspect",
+        "An inspection report was generated for a tracing span.",
+    )
+    INSPECT_REPORT_EXPORTED = (
+        "llm.inspect.report.exported",
+        "llm-inspect",
+        "An inspection report was exported to an external sink.",
     )
 
     # ------------------------------------------------------------------

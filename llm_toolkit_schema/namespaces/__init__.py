@@ -52,9 +52,12 @@ from llm_toolkit_schema.namespaces.fence import (
     ValidationPassedPayload,
 )
 from llm_toolkit_schema.namespaces.guard import GuardBlockedPayload, GuardFlaggedPayload, GuardPolicy
+from llm_toolkit_schema.namespaces.inspect import InspectIssueSummary, InspectReportPayload
 from llm_toolkit_schema.namespaces.prompt import (
     PromptApprovedPayload,
     PromptPromotedPayload,
+    PromptRejectedPayload,
+    PromptRenderedPayload,
     PromptRolledBackPayload,
     PromptSavedPayload,
 )
@@ -90,11 +93,16 @@ __all__: list[str] = [
     "GuardBlockedPayload",
     "GuardFlaggedPayload",
     "GuardPolicy",
+    # inspect
+    "InspectIssueSummary",
+    "InspectReportPayload",
     # prompt
     "PromptSavedPayload",
     "PromptPromotedPayload",
     "PromptApprovedPayload",
     "PromptRolledBackPayload",
+    "PromptRejectedPayload",
+    "PromptRenderedPayload",
     # redact (namespace)
     "PIIDetectedPayload",
     "PIIRedactedPayload",

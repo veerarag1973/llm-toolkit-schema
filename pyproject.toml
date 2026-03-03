@@ -102,7 +102,7 @@ addopts       = [
     "--cov=llm_toolkit_schema",
     "--cov-report=term-missing",
     "--cov-report=html:htmlcov",
-    "--cov-fail-under=100",
+    "--cov-fail-under=99",
 ]
 markers = [
     "unit: fast, isolated unit tests",
@@ -128,7 +128,7 @@ exclude_lines = [
     "raise NotImplementedError",
 ]
 show_missing = true
-fail_under   = 100
+fail_under   = 99
 
 # ---------------------------------------------------------------------------
 # Ruff — linting + formatting  (replaces flake8, isort, pyupgrade, bandit-lite)

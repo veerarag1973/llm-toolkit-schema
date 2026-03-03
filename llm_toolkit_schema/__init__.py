@@ -238,6 +238,7 @@ from llm_toolkit_schema.governance import (
     get_global_policy,
     set_global_policy,
 )
+from llm_toolkit_schema.actor import ActorContext
 from llm_toolkit_schema.deprecations import (
     DeprecationNotice,
     DeprecationRegistry,
@@ -285,9 +286,14 @@ from llm_toolkit_schema.namespaces import (
     GuardBlockedPayload,
     GuardFlaggedPayload,
     GuardPolicy,
+    # inspect
+    InspectIssueSummary,
+    InspectReportPayload,
     # prompt
     PromptApprovedPayload,
     PromptPromotedPayload,
+    PromptRejectedPayload,
+    PromptRenderedPayload,
     PromptRolledBackPayload,
     PromptSavedPayload,
     # redact (namespace)
@@ -378,11 +384,16 @@ __all__: list[str] = [
     # Namespace payloads (v0.5) — guard
     "GuardBlockedPayload",
     "GuardFlaggedPayload",
+    # Namespace payloads (v1.2) — inspect
+    "InspectIssueSummary",
+    "InspectReportPayload",
     # Namespace payloads (v0.5) — prompt
     "PromptSavedPayload",
     "PromptPromotedPayload",
     "PromptApprovedPayload",
     "PromptRolledBackPayload",
+    "PromptRejectedPayload",
+    "PromptRenderedPayload",
     # Namespace payloads (v0.5) — redact namespace
     "PIIDetectedPayload",
     "PIIRedactedPayload",
@@ -431,6 +442,8 @@ __all__: list[str] = [
     "get_global_policy",
     "set_global_policy",
     "governance_check_event",
+    # Actor identity context (v1.2)
+    "ActorContext",
     # Deprecation registry (v1.1 Phase 8)
     "DeprecationNotice",
     "DeprecationRegistry",

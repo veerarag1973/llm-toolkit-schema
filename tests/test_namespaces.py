@@ -38,8 +38,18 @@ from llm_toolkit_schema.namespaces.diff import DiffComparisonPayload, DiffReport
 from llm_toolkit_schema.namespaces.prompt import (
     PromptApprovedPayload,
     PromptPromotedPayload,
+    PromptRejectedPayload,
+    PromptRenderedPayload,
     PromptRolledBackPayload,
     PromptSavedPayload,
+)
+
+# ============================================================
+# inspect
+# ============================================================
+from llm_toolkit_schema.namespaces.inspect import (
+    InspectIssueSummary,
+    InspectReportPayload,
 )
 
 # ============================================================
@@ -1197,6 +1207,10 @@ class TestNamespacePackageReexports:
         "PromptPromotedPayload",
         "PromptApprovedPayload",
         "PromptRolledBackPayload",
+        "PromptRejectedPayload",
+        "PromptRenderedPayload",
+        "InspectIssueSummary",
+        "InspectReportPayload",
         "PIIDetectedPayload",
         "PIIRedactedPayload",
         "ScanCompletedPayload",
@@ -1216,6 +1230,332 @@ class TestNamespacePackageReexports:
     def test_all_in_all(self):
         for name in self._CLASSES:
             assert name in ns_pkg.__all__, f"{name} not in llm_toolkit_schema.namespaces.__all__"
+
+
+# ===========================================================================
+# PromptRejectedPayload
+# ===========================================================================
+
+
+class TestPromptRejectedPayload:
+    def test_basic(self):
+        p = PromptRejectedPayload(
+            prompt_id="p1",
+            version="2.0",
+            rejected_by="bob",
+            rejection_reason="Output quality degraded by 40% vs baseline.",
+        )
+        assert p.prompt_id == "p1"
+        assert p.rejection_reason == "Output quality degraded by 40% vs baseline."
+
+    def test_to_dict(self):
+        p = PromptRejectedPayload(
+            prompt_id="p1", version="2.0", rejected_by="bob", rejection_reason="Too verbose."
+        )
+        d = p.to_dict()
+        assert d == {
+            "prompt_id": "p1",
+            "version": "2.0",
+            "rejected_by": "bob",
+            "rejection_reason": "Too verbose.",
+        }
+
+    def test_round_trip(self):
+        p = PromptRejectedPayload(
+            prompt_id="p1", version="2.0", rejected_by="bob", rejection_reason="Quality drop."
+        )
+        assert _round_trip(PromptRejectedPayload, p) == p
+
+    def test_empty_rejection_reason_raises(self):
+        with pytest.raises(ValueError, match="rejection_reason"):
+            PromptRejectedPayload(
+                prompt_id="p1", version="2.0", rejected_by="bob", rejection_reason=""
+            )
+
+    def test_empty_rejected_by_raises(self):
+        with pytest.raises(ValueError, match="rejected_by"):
+            PromptRejectedPayload(
+                prompt_id="p1", version="2.0", rejected_by="", rejection_reason="Bad output."
+            )
+
+    def test_frozen(self):
+        p = PromptRejectedPayload(
+            prompt_id="p1", version="2.0", rejected_by="bob", rejection_reason="Bad."
+        )
+        with pytest.raises((AttributeError, TypeError)):
+            p.rejected_by = "alice"  # type: ignore
+
+
+# ===========================================================================
+# PromptRenderedPayload
+# ===========================================================================
+
+
+class TestPromptRenderedPayload:
+    def test_required_only(self):
+        p = PromptRenderedPayload(
+            prompt_id="p1", version="1.0", environment="production", variable_count=3
+        )
+        assert p.render_duration_ms is None
+        assert p.output_hash is None
+
+    def test_with_all_optional(self):
+        p = PromptRenderedPayload(
+            prompt_id="p1",
+            version="1.0",
+            environment="staging",
+            variable_count=2,
+            render_duration_ms=12.5,
+            output_hash="abc123",
+        )
+        d = p.to_dict()
+        assert d["render_duration_ms"] == 12.5
+        assert d["output_hash"] == "abc123"
+
+    def test_round_trip(self):
+        p = PromptRenderedPayload(
+            prompt_id="p1",
+            version="1.0",
+            environment="production",
+            variable_count=5,
+            render_duration_ms=8.0,
+            output_hash="sha256:deadbeef",
+        )
+        assert _round_trip(PromptRenderedPayload, p) == p
+
+    def test_optional_fields_absent_from_dict(self):
+        p = PromptRenderedPayload(
+            prompt_id="p1", version="1.0", environment="development", variable_count=0
+        )
+        d = p.to_dict()
+        assert "render_duration_ms" not in d
+        assert "output_hash" not in d
+
+    def test_negative_variable_count_raises(self):
+        with pytest.raises(ValueError, match="variable_count"):
+            PromptRenderedPayload(
+                prompt_id="p1", version="1.0", environment="dev", variable_count=-1
+            )
+
+    def test_negative_render_duration_raises(self):
+        with pytest.raises(ValueError, match="render_duration_ms"):
+            PromptRenderedPayload(
+                prompt_id="p1",
+                version="1.0",
+                environment="dev",
+                variable_count=0,
+                render_duration_ms=-5.0,
+            )
+
+    def test_non_string_output_hash_raises(self):
+        with pytest.raises(TypeError, match="output_hash"):
+            PromptRenderedPayload(
+                prompt_id="p1",
+                version="1.0",
+                environment="dev",
+                variable_count=0,
+                output_hash=123,  # type: ignore
+            )
+
+    def test_frozen(self):
+        p = PromptRenderedPayload(
+            prompt_id="p1", version="1.0", environment="dev", variable_count=0
+        )
+        with pytest.raises((AttributeError, TypeError)):
+            p.variable_count = 99  # type: ignore
+
+
+# ===========================================================================
+# InspectIssueSummary
+# ===========================================================================
+
+
+class TestInspectIssueSummary:
+    def test_basic(self):
+        issue = InspectIssueSummary(
+            issue_type="hallucination", severity="high", description="Model cited a fake source."
+        )
+        assert issue.issue_type == "hallucination"
+        assert issue.severity == "high"
+
+    def test_to_dict(self):
+        issue = InspectIssueSummary(
+            issue_type="off_topic", severity="low", description="Response drifted from task."
+        )
+        d = issue.to_dict()
+        assert d == {
+            "issue_type": "off_topic",
+            "severity": "low",
+            "description": "Response drifted from task.",
+        }
+
+    def test_round_trip(self):
+        issue = InspectIssueSummary(
+            issue_type="policy_violation",
+            severity="critical",
+            description="Contains PII.",
+        )
+        assert _round_trip(InspectIssueSummary, issue) == issue
+
+    def test_invalid_severity_raises(self):
+        with pytest.raises(ValueError, match="severity"):
+            InspectIssueSummary(issue_type="x", severity="extreme", description="desc")
+
+    def test_empty_issue_type_raises(self):
+        with pytest.raises(ValueError, match="issue_type"):
+            InspectIssueSummary(issue_type="", severity="low", description="desc")
+
+    def test_all_valid_severities(self):
+        for sev in ("low", "medium", "high", "critical"):
+            InspectIssueSummary(issue_type="x", severity=sev, description="d")
+
+    def test_frozen(self):
+        issue = InspectIssueSummary(issue_type="x", severity="low", description="d")
+        with pytest.raises((AttributeError, TypeError)):
+            issue.severity = "high"  # type: ignore
+
+
+# ===========================================================================
+# InspectReportPayload
+# ===========================================================================
+
+
+class TestInspectReportPayload:
+    def _make_issue(self, sev: str = "medium") -> InspectIssueSummary:
+        return InspectIssueSummary(issue_type="hallucination", severity=sev, description="Fake.")
+
+    def test_clean_report(self):
+        p = InspectReportPayload(
+            report_id="r1",
+            span_id="s1",
+            model="gpt-4o",
+            issues=[],
+            overall_severity="none",
+        )
+        assert p.score is None
+        assert p.inspector_version is None
+        assert p.issues == []
+
+    def test_with_issues(self):
+        p = InspectReportPayload(
+            report_id="r1",
+            span_id="s1",
+            model="gpt-4o",
+            issues=[self._make_issue("high"), self._make_issue("low")],
+            overall_severity="high",
+            score=0.4,
+            inspector_version="0.9.1",
+        )
+        assert len(p.issues) == 2
+        assert p.score == 0.4
+
+    def test_to_dict_no_optionals(self):
+        p = InspectReportPayload(
+            report_id="r1",
+            span_id="s1",
+            model="gpt-4o",
+            issues=[],
+            overall_severity="none",
+        )
+        d = p.to_dict()
+        assert "score" not in d
+        assert "inspector_version" not in d
+        assert d["issues"] == []
+
+    def test_to_dict_with_issues(self):
+        issue = self._make_issue("medium")
+        p = InspectReportPayload(
+            report_id="r1",
+            span_id="s1",
+            model="gpt-4o",
+            issues=[issue],
+            overall_severity="medium",
+            score=0.7,
+        )
+        d = p.to_dict()
+        assert len(d["issues"]) == 1
+        assert d["issues"][0]["issue_type"] == "hallucination"
+        assert d["score"] == 0.7
+
+    def test_round_trip(self):
+        p = InspectReportPayload(
+            report_id="r1",
+            span_id="s1",
+            model="claude-3-opus",
+            issues=[self._make_issue()],
+            overall_severity="medium",
+            score=0.6,
+            inspector_version="1.0.0",
+        )
+        assert _round_trip(InspectReportPayload, p) == p
+
+    def test_invalid_overall_severity_raises(self):
+        with pytest.raises(ValueError, match="overall_severity"):
+            InspectReportPayload(
+                report_id="r1",
+                span_id="s1",
+                model="gpt-4o",
+                issues=[],
+                overall_severity="extreme",
+            )
+
+    def test_score_out_of_range_raises(self):
+        with pytest.raises(ValueError, match="score"):
+            InspectReportPayload(
+                report_id="r1",
+                span_id="s1",
+                model="gpt-4o",
+                issues=[],
+                overall_severity="none",
+                score=1.5,
+            )
+
+    def test_score_zero_ok(self):
+        InspectReportPayload(
+            report_id="r1",
+            span_id="s1",
+            model="gpt-4o",
+            issues=[],
+            overall_severity="none",
+            score=0.0,
+        )
+
+    def test_score_one_ok(self):
+        InspectReportPayload(
+            report_id="r1",
+            span_id="s1",
+            model="gpt-4o",
+            issues=[],
+            overall_severity="none",
+            score=1.0,
+        )
+
+    def test_non_list_issues_raises(self):
+        with pytest.raises(TypeError, match="issues"):
+            InspectReportPayload(
+                report_id="r1",
+                span_id="s1",
+                model="gpt-4o",
+                issues="not-a-list",  # type: ignore
+                overall_severity="none",
+            )
+
+    def test_wrong_issue_type_raises(self):
+        with pytest.raises(TypeError, match="InspectIssueSummary"):
+            InspectReportPayload(
+                report_id="r1",
+                span_id="s1",
+                model="gpt-4o",
+                issues=["not-an-issue"],  # type: ignore
+                overall_severity="low",
+            )
+
+    def test_frozen(self):
+        p = InspectReportPayload(
+            report_id="r1", span_id="s1", model="gpt-4o", issues=[], overall_severity="none"
+        )
+        with pytest.raises((AttributeError, TypeError)):
+            p.model = "other"  # type: ignore
 
 
 # ===========================================================================
